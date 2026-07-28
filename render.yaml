@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: sunsiya-ai-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: VERIFY_TOKEN
+        value: sunsiya_verify_2024
+      - key: PAGE_ACCESS_TOKEN
+        sync: false
+      - key: CLAUDE_API_KEY
+        sync: false
