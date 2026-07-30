@@ -1,109 +1,102 @@
 import os
-import json
-import hmac
-import hashlib
 import requests
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Config from environment variables
 VERIFY_TOKEN = os.environ.get('VERIFY_TOKEN', 'sunsiya_verify_2024')
 PAGE_ACCESS_TOKEN = os.environ.get('PAGE_ACCESS_TOKEN', '')
-CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY', '')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN', '')
 
-# Product & training data (can be updated via admin)
-PRODUCTS = [
-    {"name": "১০০% প্রিমিয়াম খাঁটি ঘি ২৫০ গ্রাম", "price": "৪২০", "stock": "আছে"},
-    {"name": "১০০% প্রিমিয়াম খাঁটি ঘি ৫০০ গ্রাম", "price": "৮৪০", "stock": "আছে"},
-    {"name": "১০০% প্রিমিয়াম খাঁটি ঘি ১ কেজি", "price": "১৬৯০", "stock": "আছে"},
-]
+# --- On/off switch -----------------------------------------------------
+# AI_ENABLED sets the default state on every restart (edit it in Render's
+# Environment tab: true/false). ai_enabled below is the *live* value and
+# can be flipped instantly via the /toggle link without waiting for a
+# redeploy — see the /toggle route further down.
+AI_ENABLED_DEFAULT = os.environ.get('AI_ENABLED', 'true').lower() == 'true'
+ai_enabled = AI_ENABLED_DEFAULT
 
-SYSTEM_PROMPT = """তুমি Sunsiya Naturals-এর AI customer assistant। তোমার নাম "সুনসিয়া সহকারী"।
+# --- Business info / training examples ----------------------------------
+# Company details, prices, and example Q&A live in knowledge.txt, NOT here,
+# so they can be edited as plain text (no Python syntax to break) and just
+# need a commit + push to go live.
+def load_knowledge():
+    try:
+        with open(os.path.join(os.path.dirname(__file__), 'knowledge.txt'), 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return ''
 
-## তোমার ব্যক্তিত্ব:
+BUSINESS_KNOWLEDGE = load_knowledge()
+
+SYSTEM_PROMPT = f"""তুমি Sunsiya Naturals-এর AI customer assistant। তোমার নাম "সুনসিয়া সহকারী"।
+
+তোমার ব্যক্তিত্ব:
 - বন্ধুত্বপূর্ণ, উষ্ণ এবং সহায়ক
 - বাংলায় কথা বলবে, সহজ ও প্রাঞ্জল ভাষায়
-- কখনো রোবোটিক নয়, একদম মানুষের মতো কথা বলবে
+- একদম মানুষের মতো কথা বলবে
 - customer-এর সমস্যা বুঝে সহানুভূতি দেখাবে
 
-## কোম্পানির তথ্য:
-- নাম: Sunsiya Naturals
-- ওয়েবসাইট: sunsiya.com
-- ফোন: 01768-067187
-- বিশেষত্ব: ১০০% খাঁটি দেশি পণ্য, কোনো ভেজাল নেই
+{BUSINESS_KNOWLEDGE}
 
-## পণ্যসমূহ:
-- ঘি ২৫০ গ্রাম: ৳৪২০
-- ঘি ৫০০ গ্রাম: ৳৮৪০  
-- ঘি ১ কেজি: ৳১৬৯০ (ফ্রি ডেলিভারি)
-
-## ডেলিভারি:
-- ঢাকার ভেতরে: ৬০৳, ঢাকার বাইরে: ১২০৳
-- ১ কেজি অর্ডারে ফ্রি ডেলিভারি
-- পেমেন্ট: ক্যাশ অন ডেলিভারি
-
-## অর্ডার করতে:
-- ওয়েবসাইট: sunsiya.com/khati-ghee
-- ফোন: 01768-067187
-
-## নির্দেশনা:
+নির্দেশনা:
 - সব সময় বাংলায় উত্তর দাও
-- উত্তর সংক্ষিপ্ত কিন্তু সম্পূর্ণ রাখো (৩-৪ বাক্য)
+- উত্তর সংক্ষিপ্ত রাখো (৩-৪ বাক্য)
 - প্রয়োজনে emoji ব্যবহার করো
-- অর্ডার করতে উৎসাহিত করো কিন্তু চাপ দিও না
-- প্রশ্নের উত্তর না জানলে বলো ফোন করতে: 01768-067187"""
+- প্রশ্নের উত্তর না জানলে বলো ফোন করতে: 01768-067187
+- উপরে "উদাহরণ কথোপকথন" দেওয়া থাকলে ঠিক সেই ভাষা ও ধরনে উত্তর দেওয়ার চেষ্টা করো"""
 
-# Store conversation history per user
 conversation_store = {}
 
-def get_claude_response(user_id, user_message):
-    """Get AI response from Claude"""
+def get_gemini_response(user_id, user_message):
     if user_id not in conversation_store:
         conversation_store[user_id] = []
     
     conversation_store[user_id].append({
         "role": "user",
-        "content": user_message
+        "parts": [{"text": user_message}]
     })
     
-    # Keep only last 10 messages
     if len(conversation_store[user_id]) > 10:
         conversation_store[user_id] = conversation_store[user_id][-10:]
     
     try:
-        response = requests.post(
-            'https://api.anthropic.com/v1/messages',
-            headers={
-                'Content-Type': 'application/json',
-                'x-api-key': CLAUDE_API_KEY,
-                'anthropic-version': '2023-06-01'
-            },
-            json={
-                'model': 'claude-sonnet-4-6',
-                'max_tokens': 500,
-                'system': SYSTEM_PROMPT,
-                'messages': conversation_store[user_id]
-            },
-            timeout=15
-        )
+        # gemini-1.5-flash is fully shut down (404). gemini-flash-latest is an
+        # auto-updating alias that always points to Google's current GA flash model,
+        # so this line won't need manual updates when Google retires models again.
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={GEMINI_API_KEY}"
         
+        payload = {
+            "system_instruction": {
+                "parts": [{"text": SYSTEM_PROMPT}]
+            },
+            "contents": conversation_store[user_id]
+        }
+        
+        response = requests.post(url, json=payload, timeout=15)
         data = response.json()
-        if 'content' in data and len(data['content']) > 0:
-            reply = data['content'][0]['text']
-            conversation_store[user_id].append({
-                "role": "assistant",
-                "content": reply
-            })
-            return reply
-        else:
-            return "দুঃখিত, একটু সমস্যা হয়েছে। অনুগ্রহ করে 01768-067187 নম্বরে কল করুন।"
+        
+        if response.status_code != 200 or 'candidates' not in data:
+            # Log the real Gemini error (bad model name, bad key, quota, etc.)
+            # so it shows up in Render logs instead of failing silently.
+            print(f"Gemini API returned status {response.status_code}: {data}")
+            return "দুঃখিত, একটু সমস্যা হয়েছে। অনুগ্রহ করে 01768-067187 নম্বরে কল করুন। 📞"
+        
+        reply = data['candidates'][0]['content']['parts'][0]['text']
+        
+        conversation_store[user_id].append({
+            "role": "model",
+            "parts": [{"text": reply}]
+        })
+        
+        return reply
+        
     except Exception as e:
-        print(f"Claude API error: {e}")
-        return "দুঃখিত, একটু সমস্যা হয়েছে। অনুগ্রহ করে 01768-067187 নম্বরে কল করুন।"
+        print(f"Gemini API error: {e}")
+        return "দুঃখিত, একটু সমস্যা হয়েছে। অনুগ্রহ করে 01768-067187 নম্বরে কল করুন। 📞"
 
 def send_message(recipient_id, message_text):
-    """Send message via Facebook Messenger"""
     try:
         response = requests.post(
             'https://graph.facebook.com/v19.0/me/messages',
@@ -122,48 +115,74 @@ def send_message(recipient_id, message_text):
 
 @app.route('/webhook', methods=['GET'])
 def verify_webhook():
-    """Facebook webhook verification"""
     mode = request.args.get('hub.mode')
     token = request.args.get('hub.verify_token')
     challenge = request.args.get('hub.challenge')
-    
     if mode == 'subscribe' and token == VERIFY_TOKEN:
-        print("Webhook verified!")
         return challenge, 200
-    else:
-        return 'Verification failed', 403
+    return 'Verification failed', 403
 
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
-    """Handle incoming Facebook messages"""
     data = request.json
-    
     if data.get('object') == 'page':
         for entry in data.get('entry', []):
             for event in entry.get('messaging', []):
                 sender_id = event.get('sender', {}).get('id')
-                
-                if 'message' in event and not event['message'].get('is_echo'):
-                    message_text = event['message'].get('text', '')
-                    
-                    if message_text and sender_id:
-                        print(f"Message from {sender_id}: {message_text}")
-                        
-                        # Get AI response
-                        reply = get_claude_response(sender_id, message_text)
-                        
-                        # Send reply
-                        send_message(sender_id, reply)
-    
+                if 'message' not in event:
+                    continue
+
+                if event['message'].get('is_echo'):
+                    # This is YOUR own reply, sent manually from the Facebook
+                    # Page inbox/Messenger app. It shows up here so you can
+                    # find good examples in Render's Logs and copy them into
+                    # knowledge.txt's "উদাহরণ কথোপকথন" section — that's how
+                    # the AI "learns" your style over time.
+                    echo_text = event['message'].get('text', '')
+                    if echo_text:
+                        print(f"[MANUAL REPLY - copy to knowledge.txt if useful]: {echo_text}")
+                    continue
+
+                message_text = event['message'].get('text', '')
+                if not (message_text and sender_id):
+                    continue
+
+                print(f"Message from {sender_id}: {message_text}")
+
+                if ai_enabled:
+                    reply = get_gemini_response(sender_id, message_text)
+                    send_message(sender_id, reply)
+                else:
+                    print(f"[AI OFF] Not auto-replying to {sender_id} — reply manually from Messenger.")
     return 'OK', 200
+
+@app.route('/toggle', methods=['GET'])
+def toggle_ai():
+    """Bookmark this URL on your phone:
+    https://sunsiya-bot.onrender.com/toggle?token=YOUR_ADMIN_TOKEN
+    Each visit flips the AI on/off instantly (no redeploy, no waiting).
+    Add &state=on or &state=off to set it directly instead of flipping."""
+    global ai_enabled
+    if not ADMIN_TOKEN or request.args.get('token', '') != ADMIN_TOKEN:
+        return 'Unauthorized', 403
+
+    state = request.args.get('state', '').lower()
+    if state == 'on':
+        ai_enabled = True
+    elif state == 'off':
+        ai_enabled = False
+    else:
+        ai_enabled = not ai_enabled
+
+    return jsonify({'ai_enabled': ai_enabled})
+
+@app.route('/status', methods=['GET'])
+def status():
+    return jsonify({'ai_enabled': ai_enabled})
 
 @app.route('/', methods=['GET'])
 def home():
-    return jsonify({
-        'status': 'running',
-        'service': 'Sunsiya AI Bot',
-        'message': 'Messenger bot is active!'
-    })
+    return jsonify({'status': 'running', 'service': 'Sunsiya AI Bot', 'message': 'Messenger bot is active!'})
 
 @app.route('/health', methods=['GET'])
 def health():
