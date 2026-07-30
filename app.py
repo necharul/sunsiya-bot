@@ -57,7 +57,10 @@ def get_gemini_response(user_id, user_message):
         conversation_store[user_id] = conversation_store[user_id][-10:]
     
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        # gemini-1.5-flash is fully shut down (404). gemini-flash-latest is an
+        # auto-updating alias that always points to Google's current GA flash model,
+        # so this line won't need manual updates when Google retires models again.
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={GEMINI_API_KEY}"
         
         payload = {
             "system_instruction": {
@@ -68,6 +71,12 @@ def get_gemini_response(user_id, user_message):
         
         response = requests.post(url, json=payload, timeout=15)
         data = response.json()
+        
+        if response.status_code != 200 or 'candidates' not in data:
+            # Log the real Gemini error (bad model name, bad key, quota, etc.)
+            # so it shows up in Render logs instead of failing silently.
+            print(f"Gemini API returned status {response.status_code}: {data}")
+            return "দুঃখিত, একটু সমস্যা হয়েছে। অনুগ্রহ করে 01768-067187 নম্বরে কল করুন। 📞"
         
         reply = data['candidates'][0]['content']['parts'][0]['text']
         
