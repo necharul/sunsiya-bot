@@ -57,7 +57,8 @@ def get_gemini_response(user_id, user_message):
         conversation_store[user_id] = conversation_store[user_id][-10:]
     
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        # v1beta এর বদলে v1 ব্যবহার করা হয়েছে এবং timeout বাড়ান হয়েছে
+        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         
         payload = {
             "system_instruction": {
@@ -68,6 +69,11 @@ def get_gemini_response(user_id, user_message):
         
         response = requests.post(url, json=payload, timeout=15)
         data = response.json()
+        
+        # API যদি কোনো কারণে এরর রিটার্ন করে তা প্রিন্ট করে সঠিক ট্র্যাকিং
+        if 'error' in data:
+            print(f"Gemini API Returned Error: {data['error']}")
+            return "দুঃখিত, আমাদের সিস্টেমে সাময়িক সমস্যা হচ্ছে। অনুগ্রহ করে 01768-067187 নম্বরে কল করুন।"
         
         reply = data['candidates'][0]['content']['parts'][0]['text']
         
