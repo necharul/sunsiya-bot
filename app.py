@@ -24,7 +24,7 @@ SYSTEM_PROMPT = """তুমি Sunsiya Naturals-এর AI customer assistant।
 
 পণ্যসমূহ:
 - ঘি ২৫০ গ্রাম: ৳৪২০
-- ঘি ৫০০ গ্রাম: ৳৮ ৪০
+- ঘি ৫০০ গ্রাম: ৳৮৪০
 - ঘি ১ কেজি: ৳১৬৯০ (ফ্রি ডেলিভারি)
 
 ডেলিভারি:
@@ -57,8 +57,7 @@ def get_gemini_response(user_id, user_message):
         conversation_store[user_id] = conversation_store[user_id][-10:]
     
     try:
-        # ✅ পরিবর্তন: v1 এর জায়গায় v1beta ব্যবহার করা হয়েছে
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         
         payload = {
             "system_instruction": {
@@ -69,11 +68,6 @@ def get_gemini_response(user_id, user_message):
         
         response = requests.post(url, json=payload, timeout=15)
         data = response.json()
-        
-        # API যদি কোনো কারণে এরর রিটার্ন করে তা প্রিন্ট করে সঠিক ট্র্যাকিং
-        if 'error' in data:
-            print(f"Gemini API Returned Error: {data['error']}")
-            return "দুঃখিত, আমাদের সিস্টেমে সাময়িক সমস্যা হচ্ছে। অনুগ্রহ করে 01768-067187 নম্বরে কল করুন।"
         
         reply = data['candidates'][0]['content']['parts'][0]['text']
         
