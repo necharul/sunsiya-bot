@@ -83,7 +83,7 @@ def get_gemini_response(user_id, user_message):
             # Log the real Gemini error (bad model name, bad key, quota, etc.)
             # so it shows up in Render logs instead of failing silently.
             print(f"Gemini API returned status {response.status_code}: {data}")
-            return "দুঃখিত, একটু সমস্যা হয়েছে। অনুগ্রহ করে 01768-067187 নম্বরে কল করুন। 📞"
+            return "অতি দ্রুতই আমাদের একজন প্রতিনিধি আপনার প্রশ্নের উত্তর দিবে। অথবা, অনুগ্রহ করে 📞01768-067187 নম্বরে কল বা হোয়াটসঅ্যাপ করুন।"
         
         reply = data['candidates'][0]['content']['parts'][0]['text']
         
