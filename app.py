@@ -30,7 +30,7 @@ def load_knowledge():
 
 BUSINESS_KNOWLEDGE = load_knowledge()
 
-SYSTEM_PROMPT = f"""তুমি Sunsiya Naturals-এর AI customer assistant। তোমার নাম "সানসিয়া সহকারী"।
+SYSTEM_PROMPT = f"""তুমি Sunsiya Naturals-এর AI customer assistant। তোমার নাম "সুনসিয়া সহকারী"।
 
 তোমার ব্যক্তিত্ব:
 - বন্ধুত্বপূর্ণ, উষ্ণ এবং সহায়ক
@@ -62,10 +62,12 @@ def get_gemini_response(user_id, user_message):
         conversation_store[user_id] = conversation_store[user_id][-10:]
     
     try:
-        # gemini-1.5-flash is fully shut down (404). gemini-flash-latest is an
-        # auto-updating alias that always points to Google's current GA flash model,
-        # so this line won't need manual updates when Google retires models again.
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={GEMINI_API_KEY}"
+        # Using a pinned stable model (gemini-2.5-flash-lite) instead of the
+        # "-latest" alias: newer preview models Google points that alias to
+        # sometimes carry very low free-tier daily quotas (as low as 20/day),
+        # which isn't enough for real customer traffic. Flash-Lite has one of
+        # the highest free daily quotas of any current model.
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
         
         payload = {
             "system_instruction": {
@@ -81,7 +83,7 @@ def get_gemini_response(user_id, user_message):
             # Log the real Gemini error (bad model name, bad key, quota, etc.)
             # so it shows up in Render logs instead of failing silently.
             print(f"Gemini API returned status {response.status_code}: {data}")
-            return "অতি দ্রুতই আমাদের একজন প্রতিনিধি আপনার প্রশ্নের উত্তর দিবে। অথবা, অনুগ্রহ করে 📞01768-067187 নম্বরে কল বা হোয়াটসঅ্যাপ করুন।"
+            return "দুঃখিত, একটু সমস্যা হয়েছে। অনুগ্রহ করে 01768-067187 নম্বরে কল করুন। 📞"
         
         reply = data['candidates'][0]['content']['parts'][0]['text']
         
