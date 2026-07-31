@@ -12,6 +12,6 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: AI_ENABLED
-        value: "true"
+        sync: false
       - key: ADMIN_TOKEN
         sync: false
