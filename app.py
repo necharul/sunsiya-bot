@@ -216,6 +216,28 @@ def home():
 def health():
     return jsonify({'status': 'healthy'})
 
+# --- Keep-alive ----------------------------------------------------------
+# Render's free tier spins the service down after 15 minutes of no traffic.
+# Waking back up takes ~50 seconds, and a Facebook webhook event (a customer
+# message, or the echo of your manual reply) that arrives during that gap
+# can get dropped instead of retried. This background thread pings our own
+# /health endpoint every 10 minutes so the service is always awake and no
+# event is missed — no external service needed.
+import threading
+import time
+
+SELF_URL = os.environ.get('SELF_URL', 'https://sunsiya-bot.onrender.com')
+
+def keep_alive():
+    while True:
+        time.sleep(600)
+        try:
+            requests.get(f'{SELF_URL}/health', timeout=10)
+        except Exception as e:
+            print(f"Keep-alive ping failed: {e}")
+
+threading.Thread(target=keep_alive, daemon=True).start()
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
