@@ -17,6 +17,31 @@ ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN', '')
 AI_ENABLED_DEFAULT = os.environ.get('AI_ENABLED', 'true').lower() == 'true'
 ai_enabled = AI_ENABLED_DEFAULT
 
+# Render API credentials (optional). If set, /toggle also updates the real
+# AI_ENABLED environment variable on Render — not just the in-memory copy —
+# so the chosen state survives free-tier spin-downs/restarts instead of
+# silently reverting to "on". Get RENDER_API_KEY from Render account
+# settings -> API Keys. RENDER_SERVICE_ID is the "srv-..." ID shown in your
+# service's URL/dashboard.
+RENDER_API_KEY = os.environ.get('RENDER_API_KEY', '')
+RENDER_SERVICE_ID = os.environ.get('RENDER_SERVICE_ID', '')
+
+def persist_ai_state(state: bool):
+    if not (RENDER_API_KEY and RENDER_SERVICE_ID):
+        return
+    try:
+        requests.put(
+            f'https://api.render.com/v1/services/{RENDER_SERVICE_ID}/env-vars/AI_ENABLED',
+            headers={
+                'Authorization': f'Bearer {RENDER_API_KEY}',
+                'Content-Type': 'application/json'
+            },
+            json={'value': 'true' if state else 'false'},
+            timeout=10
+        )
+    except Exception as e:
+        print(f"Could not persist AI state to Render: {e}")
+
 # --- Business info / training examples ----------------------------------
 # Company details, prices, and example Q&A live in knowledge.txt, NOT here,
 # so they can be edited as plain text (no Python syntax to break) and just
@@ -30,7 +55,7 @@ def load_knowledge():
 
 BUSINESS_KNOWLEDGE = load_knowledge()
 
-SYSTEM_PROMPT = f"""তুমি Sunsiya Naturals-এর AI customer assistant। তোমার নাম "সুনসিয়া সহকারী"।
+SYSTEM_PROMPT = f"""তুমি Sunsiya Naturals-এর AI customer assistant। তোমার নাম "সানসিয়া সহকারী"।
 
 তোমার ব্যক্তিত্ব:
 - বন্ধুত্বপূর্ণ, উষ্ণ এবং সহায়ক
@@ -62,12 +87,11 @@ def get_gemini_response(user_id, user_message):
         conversation_store[user_id] = conversation_store[user_id][-10:]
     
     try:
-        # Using a pinned stable model (gemini-2.5-flash-lite) instead of the
-        # "-latest" alias: newer preview models Google points that alias to
-        # sometimes carry very low free-tier daily quotas (as low as 20/day),
-        # which isn't enough for real customer traffic. Flash-Lite has one of
-        # the highest free daily quotas of any current model.
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
+        # Model history: gemini-1.5-flash (shut down) -> gemini-flash-latest
+        # (pointed to a preview model with only 20 free requests/day) ->
+        # gemini-2.5-flash-lite (also retired). Using gemini-3.1-flash-lite:
+        # Google's current recommended free, high-volume workhorse model.
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={GEMINI_API_KEY}"
         
         payload = {
             "system_instruction": {
@@ -175,6 +199,8 @@ def toggle_ai():
         ai_enabled = False
     else:
         ai_enabled = not ai_enabled
+
+    persist_ai_state(ai_enabled)  # best-effort — keeps state after a restart
 
     return jsonify({'ai_enabled': ai_enabled})
 
